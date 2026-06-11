@@ -12,7 +12,6 @@ exports.handler = async function (event) {
     'Content-Type': 'application/json',
   };
 
-  // Pré-vol CORS (OPTIONS)
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };
   }
@@ -22,7 +21,6 @@ exports.handler = async function (event) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'ticker manquant' }) };
   }
 
-  // URLs Yahoo Finance à essayer dans l'ordre
   const urls = [
     `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency`,
     `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency`,
@@ -53,14 +51,16 @@ exports.handler = async function (event) {
       // Format v7
       const v7 = data?.quoteResponse?.result?.[0];
       if (v7 && v7.regularMarketPrice) {
+        const rawPrice = v7.regularMarketPrice;
+        const rawPrev  = v7.regularMarketPreviousClose || null;
         return {
           statusCode: 200, headers,
           body: JSON.stringify({
-  price:    parseFloat(v7.regularMarketPrice.toFixed(4)),
-  change:   v7.regularMarketPreviousClose != null ? parseFloat((v7.regularMarketPrice - v7.regularMarketPreviousClose).toFixed(4)) : null,
-  changeP:  v7.regularMarketPreviousClose != null ? parseFloat(((v7.regularMarketPrice - v7.regularMarketPreviousClose) / v7.regularMarketPreviousClose * 100).toFixed(2)) : null,
-  currency: v7.currency || null,
-  source: 'v7',
+            price:    parseFloat(rawPrice.toFixed(4)),
+            change:   rawPrev != null ? parseFloat((rawPrice - rawPrev).toFixed(4)) : null,
+            changeP:  rawPrev != null ? parseFloat(((rawPrice - rawPrev) / rawPrev * 100).toFixed(2)) : null,
+            currency: v7.currency || null,
+            source: 'v7',
           }),
         };
       }
@@ -68,14 +68,19 @@ exports.handler = async function (event) {
       // Format v8
       const v8 = data?.chart?.result?.[0];
       if (v8) {
-        const meta  = v8.meta;
-        const price = parseFloat((meta.regularMarketPrice || meta.previousClose || 0).toFixed(4));
-        if (price > 0) {
-         const change  = meta.regularMarketChange != null ? parseFloat(meta.regularMarketChange.toFixed(4)) : null;
-         const changeP = meta.regularMarketChangePercent != null ? parseFloat(meta.regularMarketChangePercent.toFixed(2)) : null; 
+        const meta     = v8.meta;
+        const rawPrice = meta.regularMarketPrice || meta.previousClose || 0;
+        const rawPrev  = meta.regularMarketPreviousClose || meta.chartPreviousClose || meta.previousClose || null;
+        if (rawPrice > 0) {
           return {
             statusCode: 200, headers,
-            body: JSON.stringify({ price, change, changeP, currency: meta.currency || null, source: 'v8' }),
+            body: JSON.stringify({
+              price:    parseFloat(rawPrice.toFixed(4)),
+              change:   rawPrev != null ? parseFloat((rawPrice - rawPrev).toFixed(4)) : null,
+              changeP:  rawPrev != null ? parseFloat(((rawPrice - rawPrev) / rawPrev * 100).toFixed(2)) : null,
+              currency: meta.currency || null,
+              source: 'v8',
+            }),
           };
         }
       }
