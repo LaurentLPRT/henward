@@ -71,7 +71,7 @@ exports.handler = async function (event) {
         const meta  = v8.meta;
         const price = parseFloat((meta.regularMarketPrice || meta.previousClose || 0).toFixed(4));
         if (price > 0) {
-          const prev    = meta.chartPreviousClose || meta.previousClose || null;
+          const prev = meta.regularMarketPreviousClose || meta.chartPreviousClose || meta.previousClose || null;
           const change  = prev ? parseFloat((price - prev).toFixed(4)) : null;
           const changeP = prev ? parseFloat(((price - prev) / prev * 100).toFixed(2)) : null;
           return {
