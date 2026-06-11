@@ -70,7 +70,8 @@ exports.handler = async function (event) {
       if (v8) {
         const meta     = v8.meta;
         const rawPrice = meta.regularMarketPrice || meta.previousClose || 0;
-        const rawPrev  = meta.regularMarketPreviousClose || meta.chartPreviousClose || meta.previousClose || null;
+        const closes  = v8.indicators?.quote?.[0]?.close || [];
+        const rawPrev = closes.length >= 2 ? closes[closes.length - 2] : (meta.regularMarketPreviousClose || null);
         if (rawPrice > 0) {
           return {
             statusCode: 200, headers,
