@@ -56,11 +56,11 @@ exports.handler = async function (event) {
         return {
           statusCode: 200, headers,
           body: JSON.stringify({
-            price:   parseFloat(v7.regularMarketPrice.toFixed(4)),
-            change:  v7.regularMarketChange != null ? parseFloat(v7.regularMarketChange.toFixed(4)) : null,
-            changeP: v7.regularMarketChangePercent != null ? parseFloat(v7.regularMarketChangePercent.toFixed(2)) : null,
-            currency: v7.currency || null,
-            source: 'v7',
+  price:    parseFloat(v7.regularMarketPrice.toFixed(4)),
+  change:   v7.regularMarketPreviousClose != null ? parseFloat((v7.regularMarketPrice - v7.regularMarketPreviousClose).toFixed(4)) : null,
+  changeP:  v7.regularMarketPreviousClose != null ? parseFloat(((v7.regularMarketPrice - v7.regularMarketPreviousClose) / v7.regularMarketPreviousClose * 100).toFixed(2)) : null,
+  currency: v7.currency || null,
+  source: 'v7',
           }),
         };
       }
