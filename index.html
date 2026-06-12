@@ -760,8 +760,9 @@ async function refreshAll(){
       failedIds.add(s.id); // échec → marque cette action
       fail++;
     }
+    render(); // mise à jour visuelle après chaque action
   }
-  render(); updateSummary(); applyTime(now);
+  updateSummary(); applyTime(now);
   setBtn(false);
   toast(fail > 0 ? ok + ' mis à jour, ' + fail + ' en échec' : ok + ' cours actualisés');
 }
@@ -808,9 +809,10 @@ function render(){
     const pStr = s.price != null
       ? '<div class="price-val" style="display:flex;align-items:center;gap:0">' + fmt(s.price) + ' €' + failDot + '</div>'
       : '<div class="price-val" style="color:var(--txt3);display:flex;align-items:center;gap:0">—' + failDot + '</div>';
-    const chgHtml = s.changeP != null
-      ? '<div class="chg ' + (s.changeP > 0 ? 'up' : s.changeP < 0 ? 'dn' : 'flat') + '">' +
-        (s.changeP > 0 ? '▲ ' : '▼ ') + (s.changeP > 0 ? '+' : '') + fmt(s.changeP) + '%</div>'
+    const cp = s.changeP != null ? Number(s.changeP) : null;
+    const chgHtml = cp != null
+      ? '<div class="chg ' + (cp > 0 ? 'up' : cp < 0 ? 'dn' : 'flat') + '">' +
+        (cp > 0 ? '▲ +' : cp < 0 ? '▼ ' : '— ') + fmt(Math.abs(cp)) + '%</div>'
       : '';
     return '<tr>' +
       '<td><div class="cell-ticker">' +
