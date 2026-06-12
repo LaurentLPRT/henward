@@ -676,42 +676,54 @@ async function clearAll(){
 }
 
 // ============================================================
-// FETCH QUOTE — 3 proxies en cascade
+// FETCH QUOTE — Netlify Function + fallback proxies CORS
 // ============================================================
 async function fetchQuote(ticker){
-  // Nettoyage ticker : trim, uppercase, suppression espaces
   ticker = ticker.trim().toUpperCase().replace(/\s/g,'');
 
-  const YF_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=5d&includePrePost=false';
-  const YF_URL2 = 'https://query2.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=5d&includePrePost=false';
+  // --- Tentative 1 : Netlify Function (serveur propre, sans CORS) ---
+  try{
+    const r = await fetch('/.netlify/functions/quote?ticker=' + encodeURIComponent(ticker),
+      { signal: AbortSignal.timeout(8000) });
+    if(r.ok){
+      const j = await r.json();
+      if(j && j.price) return { price: j.price, change: j.change ?? null, changeP: j.changeP ?? null };
+    }
+  } catch(e){ /* tombe sur les proxies */ }
 
-  const PROXIES = [
-    'https://api.allorigins.win/get?url=',
-    'https://corsproxy.io/?',
-    'https://api.codetabs.com/v1/proxy?quest='
+  // --- Tentative 2 : proxies CORS en cascade (7 sources) ---
+  const YF1 = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=5d&includePrePost=false';
+  const YF2 = 'https://query2.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=5d&includePrePost=false';
+
+  const ATTEMPTS = [
+    { proxy: 'https://api.allorigins.win/get?url=',        yf: YF1, wrap: true  },
+    { proxy: 'https://corsproxy.io/?',                     yf: YF1, wrap: false },
+    { proxy: 'https://api.allorigins.win/get?url=',        yf: YF2, wrap: true  },
+    { proxy: 'https://corsproxy.io/?',                     yf: YF2, wrap: false },
+    { proxy: 'https://api.codetabs.com/v1/proxy?quest=',   yf: YF1, wrap: false },
+    { proxy: 'https://thingproxy.freeboard.io/fetch/',     yf: YF1, wrap: false },
+    { proxy: 'https://api.codetabs.com/v1/proxy?quest=',   yf: YF2, wrap: false },
   ];
 
-  for(let pi = 0; pi < PROXIES.length; pi++){
-    const base = pi === 2 ? YF_URL2 : YF_URL;
-    const url  = PROXIES[pi] + encodeURIComponent(base);
+  for(const { proxy, yf, wrap } of ATTEMPTS){
     try{
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const url = proxy + encodeURIComponent(yf);
+      const r = await fetch(url, { signal: AbortSignal.timeout(9000) });
       if(!r.ok) continue;
       const j = await r.json();
-      // allorigins wraps in .contents string, others return direct JSON
-      const raw = j.contents ? JSON.parse(j.contents) : j;
-      const result = raw.chart?.result?.[0];
+      const raw = wrap && j.contents ? JSON.parse(j.contents) : j;
+      const result = raw?.chart?.result?.[0];
       if(!result) continue;
-      const meta  = result.meta;
+      const meta = result.meta;
       const price = parseFloat((meta.regularMarketPrice || meta.previousClose || 0).toFixed(3));
       if(!price) continue;
       const prev    = meta.chartPreviousClose || meta.previousClose || null;
       const change  = prev ? parseFloat((price - prev).toFixed(3)) : null;
       const changeP = prev ? parseFloat(((price - prev) / prev * 100).toFixed(2)) : null;
       return { price, change, changeP };
-    } catch(e){ /* try next proxy */ }
+    } catch(e){ /* essai suivant */ }
   }
-  return null; // all proxies failed
+  return null;
 }
 
 // ============================================================
