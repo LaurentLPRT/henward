@@ -1,98 +1,54 @@
-// ============================================================
-// Henward — Fonction Netlify : quote.js
-// Rôle : proxy serveur vers Yahoo Finance, sans CORS
-// Endpoint : /.netlify/functions/quote?ticker=MC.PA
-// ============================================================
-
-exports.handler = async function (event) {
-
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json',
-  };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
-  }
-
+exports.handler = async function(event) {
   const ticker = (event.queryStringParameters?.ticker || '').trim().toUpperCase();
+
   if (!ticker) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'ticker manquant' }) };
+    return { statusCode: 400, body: JSON.stringify({ error: 'ticker requis' }) };
   }
+
+  // Headers imitant un vrai navigateur pour éviter le blocage Yahoo
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Origin': 'https://finance.yahoo.com',
+    'Referer': 'https://finance.yahoo.com/',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  };
 
   const urls = [
-    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency`,
-    `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=2d&includePrePost=false&events=div,splits`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=2d&includePrePost=false&events=div,splits`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d&includePrePost=false`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d&includePrePost=false`,
   ];
-
-  const fetchOpts = {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Referer': 'https://finance.yahoo.com/',
-      'Origin': 'https://finance.yahoo.com',
-    },
-  };
 
   for (const url of urls) {
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, { ...fetchOpts, signal: controller.signal });
-      clearTimeout(timer);
-
+      const res = await fetch(url, { headers });
       if (!res.ok) continue;
       const data = await res.json();
-
-      // Format v7
-      const v7 = data?.quoteResponse?.result?.[0];
-      if (v7 && v7.regularMarketPrice) {
-        const rawPrice = v7.regularMarketPrice;
-        const rawPrev  = v7.regularMarketPreviousClose || null;
-        return {
-          statusCode: 200, headers,
-          body: JSON.stringify({
-            price:    parseFloat(rawPrice.toFixed(4)),
-            change:   rawPrev != null ? parseFloat((rawPrice - rawPrev).toFixed(4)) : null,
-            changeP:  rawPrev != null ? parseFloat(((rawPrice - rawPrev) / rawPrev * 100).toFixed(2)) : null,
-            currency: v7.currency || null,
-            source: 'v7',
-          }),
-        };
-      }
-
-      // Format v8
-      const v8 = data?.chart?.result?.[0];
-      if (v8) {
-        const meta     = v8.meta;
-        const rawPrice = meta.regularMarketPrice || meta.previousClose || 0;
-        const closes  = v8.indicators?.quote?.[0]?.close || [];
-        const rawPrev = closes.length >= 2 ? closes[closes.length - 2] : (meta.regularMarketPreviousClose || null);
-        if (rawPrice > 0) {
-          return {
-            statusCode: 200, headers,
-            body: JSON.stringify({
-              price:    parseFloat(rawPrice.toFixed(4)),
-              change:   rawPrev != null ? parseFloat((rawPrice - rawPrev).toFixed(4)) : null,
-              changeP:  rawPrev != null ? parseFloat(((rawPrice - rawPrev) / rawPrev * 100).toFixed(2)) : null,
-              currency: meta.currency || null,
-              source: 'v8',
-            }),
-          };
-        }
-      }
-
-    } catch (e) {
-      // Essai URL suivante
-    }
+      const result = data?.chart?.result?.[0];
+      if (!result) continue;
+      const meta    = result.meta;
+      const price   = parseFloat((meta.regularMarketPrice || meta.previousClose || 0).toFixed(3));
+      if (!price) continue;
+      const prev    = meta.chartPreviousClose || meta.previousClose || null;
+      const change  = prev ? parseFloat((price - prev).toFixed(3)) : null;
+      const changeP = prev ? parseFloat(((price - prev) / prev * 100).toFixed(2)) : null;
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+        body: JSON.stringify({ price, change, changeP }),
+      };
+    } catch (e) { /* essai URL suivante */ }
   }
 
   return {
-    statusCode: 502, headers,
-    body: JSON.stringify({ error: 'Impossible de récupérer le cours pour ' + ticker }),
+    statusCode: 502,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ error: 'Cours non disponible pour ' + ticker }),
   };
 };
