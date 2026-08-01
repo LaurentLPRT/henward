@@ -119,6 +119,17 @@ td{padding:13px 16px;vertical-align:middle}
 .ra-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
 .ra-btn:hover{background:var(--surface2);color:var(--txt);border-color:var(--border2)}
 .ra-del:hover{background:var(--red-bg)!important;color:var(--red)!important;border-color:var(--red-b)!important}
+.ra-transfer:hover{background:var(--blue-bg)!important;color:var(--blue)!important;border-color:var(--blue-b)!important}
+.drag-handle{cursor:grab;color:var(--txt3);font-size:13px;line-height:1;letter-spacing:-2px;user-select:none}
+tbody tr[draggable="true"]{cursor:grab}
+tbody tr.dragging{opacity:0.4;background:var(--surface2)}
+tbody tr.drag-over-top{box-shadow:inset 0 2px 0 0 var(--blue)}
+tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
+/* TRANSFER MODAL */
+.transfer-dest-list{display:flex;flex-direction:column;gap:8px}
+.transfer-dest-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--surface2);border:1.5px solid var(--border);border-radius:var(--r);padding:11px 14px;font-size:13px;font-weight:600;color:var(--txt);cursor:pointer;transition:all 0.15s}
+.transfer-dest-btn:hover{background:var(--blue-bg);border-color:var(--blue-b);color:var(--blue)}
+.transfer-dest-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;flex-shrink:0}
 .empty-td{text-align:center;padding:3.5rem;color:var(--txt3)}
 .empty-td svg{width:40px;height:40px;margin:0 auto 12px;display:block;opacity:0.25;stroke:currentColor;fill:none;stroke-width:1.2}
 .empty-td p{font-size:14px}.empty-td strong{color:var(--txt2)}
@@ -539,7 +550,7 @@ td{padding:13px 16px;vertical-align:middle}
           <label class="check-item ttf-check">
             <input type="checkbox" id="f-ttf"/>
             <div class="cb-box"></div>
-            <span class="cb-label">TTF</span>
+            <span class="cb-label">ASAP</span>
           </label>
         </div>
       </div>
@@ -579,6 +590,21 @@ td{padding:13px 16px;vertical-align:middle}
   </div>
 </div>
 
+<!-- MODAL TRANSFERT -->
+<div class="overlay" id="transfer-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Transférer vers…</h2>
+      <button class="modal-close" onclick="closeTransferModal()">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="transfer-dest-list" id="transfer-body"></div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -605,6 +631,7 @@ let editId      = null;
 let filterSLK   = false;
 let filterSLKList = false;
 const failedIds = new Set();
+let transferStockId=null;
 
 // Cache session
 const priceCache = new Map();
@@ -636,14 +663,25 @@ function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
-function showDash(){ currentListId=null; showScreen('dash-screen'); }
+async function showDash(){
+  currentListId=null;
+  showLoader(true,'Chargement…');
+  try{
+    await dbLoad();
+  } catch(e){
+    toast('Erreur chargement Stock Screener : '+e.message,'err');
+  }
+  showLoader(false);
+  showScreen('dash-screen');
+  render();
+}
 function showTickers(){ showScreen('tickers-screen'); setTimeout(()=>document.getElementById('ticker-search').focus(),60); }
 
 // ============================================================
 // SUPABASE — STOCKS (dashboard, list_id null)
 // ============================================================
 async function dbLoad(){
-  const r=await fetch(SB_TBL+'?list_id=is.null&order=id.asc',{headers:SB_HDR});
+  const r=await fetch(SB_TBL+'?list_id=is.null&order=sort_order.asc.nullslast,id.asc',{headers:SB_HDR});
   if(!r.ok) throw new Error('Erreur chargement ('+r.status+')');
   stocks=mapRows(await r.json());
   if(stocks.length){
@@ -653,7 +691,7 @@ async function dbLoad(){
 }
 
 async function dbLoadListStocks(listId){
-  const r=await fetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId)+'&order=id.asc',{headers:SB_HDR});
+  const r=await fetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId)+'&order=sort_order.asc.nullslast,id.asc',{headers:SB_HDR});
   if(!r.ok) throw new Error('Erreur chargement liste ('+r.status+')');
   listStocks=mapRows(await r.json());
   if(listStocks.length){
@@ -674,6 +712,7 @@ function mapRows(rows){
     slk:     row.slk,
     ttf:     row.ttf,
     listId:  row.list_id||null,
+    sortOrder: row.sort_order??0,
     updAt:   row.updated_at
   }));
 }
@@ -684,7 +723,7 @@ async function dbUpsert(s){
     id:s.id, ticker:s.ticker, name:s.name,
     price:s.price??null, change_val:s.change??null, change_pct:s.changeP??null,
     target:s.target, slk:!!s.slk, ttf:!!s.ttf,
-    list_id:s.listId||null, updated_at:now
+    list_id:s.listId||null, sort_order:s.sortOrder??0, updated_at:now
   };
   const r=await fetch(SB_TBL,{
     method:'POST',
@@ -715,6 +754,10 @@ async function dbDeleteAll(){
 async function dbDeleteListStocks(listId){
   const r=await fetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId),{method:'DELETE',headers:SB_HDR});
   if(!r.ok) throw new Error('DeleteListStocks failed '+r.status);
+}
+
+async function dbSaveOrder(orderedIds){
+  await Promise.all(orderedIds.map((id,idx)=>dbPatch(id,{sort_order:idx+1})));
 }
 
 // ============================================================
@@ -763,7 +806,7 @@ function doLogin(){
     err.style.display='none';
     showLoader(true,'Chargement…');
     Promise.all([dbLoad(),dbLoadLists()])
-      .then(()=>{showLoader(false);showDash();render();})
+      .then(()=>{showLoader(false);showScreen('dash-screen');render();})
       .catch(e=>{showLoader(false);toast('Erreur connexion Supabase : '+e.message,'err');});
   } else { err.style.display='block'; }
 }
@@ -975,7 +1018,16 @@ async function saveStock(){
     else toast('Cours non récupéré automatiquement — vous pouvez le saisir manuellement','warn');
   }
 
-  const stockObj={id:editId||Date.now().toString(),ticker,name,price,change,changeP,target,slk,ttf,listId:targetListId};
+  const contextArr=isListCtx?listStocks:stocks;
+  let sortOrder;
+  if(editId){
+    const existing=contextArr.find(x=>x.id===editId);
+    sortOrder=existing?existing.sortOrder:0;
+  } else {
+    sortOrder=contextArr.length?Math.max(...contextArr.map(x=>x.sortOrder||0))+1:1;
+  }
+
+  const stockObj={id:editId||Date.now().toString(),ticker,name,price,change,changeP,target,slk,ttf,listId:targetListId,sortOrder};
   try{
     await dbUpsert(stockObj);
     if(isListCtx){
@@ -1158,14 +1210,16 @@ function buildRows(list){
       :'<div class="price-val" style="color:var(--txt3);display:flex;align-items:center;gap:0">—'+failDot+'</div>';
     const chgHtml=s.changeP!=null
       ?'<div class="chg '+(s.changeP>0?'up':s.changeP<0?'dn':'flat')+'">'+(s.changeP>0?'▲ ':'▼ ')+(s.changeP>0?'+':'')+fmt(s.changeP)+'%</div>':'';
-    return '<tr>'+
+    return '<tr draggable="true" data-id="'+s.id+'">'+
       '<td><div class="cell-ticker">'+
-        '<div class="stock-name-row">'+(s.slk?'<span style="font-size:13px;line-height:1">⭐</span>':'')+
+        '<div class="stock-name-row">'+
+          '<span class="drag-handle" title="Glisser pour réordonner">⠿</span>'+
+          (s.slk?'<span style="font-size:13px;line-height:1">⭐</span>':'')+
           '<span class="stock-name">'+escH(s.name)+'</span>'+
         '</div>'+
         '<div class="ticker-row">'+
           '<span class="ticker-badge">'+escH(s.ticker)+'</span>'+
-          (s.ttf?'<span class="ttf-badge">TTF</span>':'')+
+          (s.ttf?'<span class="ttf-badge">ASAP</span>':'')+
         '</div>'+
       '</div></td>'+
       '<td>'+pStr+chgHtml+'</td>'+
@@ -1177,6 +1231,9 @@ function buildRows(list){
         '</button>'+
         '<button class="ra-btn ra-del" onclick="deleteStock(\''+s.id+'\')" title="Supprimer">'+
           '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>'+
+        '</button>'+
+        '<button class="ra-btn ra-transfer" onclick="openTransferModal(\''+s.id+'\')" title="Transférer vers une autre liste">'+
+          '<svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>'+
         '</button>'+
       '</div></td>'+
     '</tr>';
@@ -1195,6 +1252,7 @@ function render(){
     return;
   }
   tb.innerHTML=buildRows(list);
+  enableDragReorder('stocks-body', ()=>stocks, arr=>{stocks=arr;}, filterSLK);
 }
 
 function renderList(){
@@ -1209,6 +1267,109 @@ function renderList(){
     return;
   }
   tb.innerHTML=buildRows(list);
+  enableDragReorder('list-stocks-body', ()=>listStocks, arr=>{listStocks=arr;}, filterSLKList);
+}
+
+// ============================================================
+// GLISSER-DÉPOSER — réordonnancement persistant (Supabase)
+// ============================================================
+function enableDragReorder(tbodyId, getArray, setArray, isFiltered){
+  const tbody=document.getElementById(tbodyId);
+  if(!tbody) return;
+  if(isFiltered) return; // désactivé en vue filtrée ⭐ SLK pour éviter toute ambiguïté sur l'ordre réel
+  let dragEl=null;
+
+  tbody.querySelectorAll('tr[draggable="true"]').forEach(tr=>{
+    tr.addEventListener('dragstart',e=>{
+      dragEl=tr;
+      setTimeout(()=>tr.classList.add('dragging'),0);
+      e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain',tr.dataset.id);
+    });
+    tr.addEventListener('dragend',()=>{
+      tr.classList.remove('dragging');
+      tbody.querySelectorAll('tr').forEach(r=>r.classList.remove('drag-over-top','drag-over-bottom'));
+      dragEl=null;
+    });
+    tr.addEventListener('dragover',e=>{
+      e.preventDefault();
+      if(!dragEl||dragEl===tr) return;
+      const rect=tr.getBoundingClientRect();
+      const isAfter=(e.clientY-rect.top)/rect.height>0.5;
+      tbody.querySelectorAll('tr').forEach(r=>r.classList.remove('drag-over-top','drag-over-bottom'));
+      tr.classList.add(isAfter?'drag-over-bottom':'drag-over-top');
+    });
+    tr.addEventListener('drop',e=>{
+      e.preventDefault();
+      if(!dragEl||dragEl===tr) return;
+      const rect=tr.getBoundingClientRect();
+      const isAfter=(e.clientY-rect.top)/rect.height>0.5;
+      tbody.insertBefore(dragEl, isAfter?tr.nextSibling:tr);
+      tr.classList.remove('drag-over-top','drag-over-bottom');
+    });
+  });
+
+  tbody.addEventListener('dragend', async ()=>{
+    const newOrderIds=Array.from(tbody.querySelectorAll('tr[data-id]')).map(tr=>tr.dataset.id);
+    const arr=getArray();
+    const reordered=newOrderIds.map(id=>arr.find(s=>s.id===id)).filter(Boolean);
+    reordered.forEach((s,idx)=>{ s.sortOrder=idx+1; });
+    setArray(reordered);
+    try{
+      await dbSaveOrder(newOrderIds);
+      toast('Ordre mis à jour');
+    } catch(e){
+      toast('Erreur sauvegarde ordre : '+e.message,'err');
+    }
+  });
+}
+
+// ============================================================
+// TRANSFERT VERS UNE AUTRE LISTE
+// ============================================================
+function openTransferModal(id){
+  transferStockId=id;
+  const isListCtx=document.getElementById('list-screen').classList.contains('active');
+  const currentLoc=isListCtx?currentListId:null;
+  const destinations=[];
+  if(currentLoc!==null) destinations.push({id:'',name:'Stock Screener'});
+  lists.forEach(l=>{ if(l.id!==currentLoc) destinations.push({id:l.id,name:l.name}); });
+
+  const body=document.getElementById('transfer-body');
+  if(!destinations.length){
+    body.innerHTML='<div style="text-align:center;padding:1rem;color:var(--txt3);font-size:13px">Aucune autre liste disponible pour le moment.<br>Créez d\'abord une nouvelle liste depuis le panneau "Listes".</div>';
+  } else {
+    body.innerHTML=destinations.map(d=>
+      '<button class="transfer-dest-btn" onclick="doTransfer(\''+d.id+'\')">'+
+        '<svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>'+
+        escH(d.name)+
+      '</button>'
+    ).join('');
+  }
+  document.getElementById('transfer-overlay').classList.add('open');
+}
+function closeTransferModal(){ document.getElementById('transfer-overlay').classList.remove('open'); transferStockId=null; }
+document.getElementById('transfer-overlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeTransferModal();});
+
+async function doTransfer(destId){
+  destId=destId||null;
+  const id=transferStockId;
+  if(!id) return;
+  const isListCtx=document.getElementById('list-screen').classList.contains('active');
+  const arr=isListCtx?listStocks:stocks;
+  const idx=arr.findIndex(x=>x.id===id);
+  if(idx===-1) return;
+  const stockName=arr[idx].name;
+  const newSortOrder=Math.floor(Date.now()/1000); // place l'action transférée en fin de liste de destination
+  try{
+    await dbPatch(id,{list_id:destId,sort_order:newSortOrder});
+    arr.splice(idx,1);
+    if(isListCtx){ listStocks=arr; renderList(); } else { stocks=arr; render(); }
+    closeTransferModal();
+    toast('« '+stockName+' » transférée avec succès');
+  } catch(e){
+    toast('Erreur transfert : '+e.message,'err');
+  }
 }
 
 // ============================================================
