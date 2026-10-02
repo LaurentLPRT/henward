@@ -611,15 +611,13 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
 // ============================================================
 // CONFIG
 // ============================================================
-const CREDS = { adminll: 'JSLMTvarazz50?' };
 const QUOTE_FN = '/.netlify/functions/quote';
 
-// SUPABASE
-const SB_URL = 'https://xqvzljucvzqvmfvagwsl.supabase.co';
-const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxdnpsanVjdnpxdm1mdmFnd3NsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0NzU1MTYsImV4cCI6MjA5NTA1MTUxNn0.FXfS0mxII5MrjOuo95CgZzq1Smn_gSp_ZAeyyELTTB8';
-const SB_HDR = { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' };
-const SB_TBL   = SB_URL + '/rest/v1/stocks';
-const SB_LISTS = SB_URL + '/rest/v1/lists';
+// BASE DE DONNÉES — accès via le relais Netlify (aucune clé dans la page)
+const SB_URL   = '/.netlify/functions/db';
+const SB_HDR   = { 'Content-Type': 'application/json' };   // le jeton de session est ajouté après connexion
+const SB_TBL   = SB_URL + '/stocks';
+const SB_LISTS = SB_URL + '/lists';
 
 // STATE
 let stocks      = [];   // dashboard (list_id IS NULL)
@@ -638,6 +636,14 @@ const priceCache = new Map();
 const CACHE_TTL  = 3 * 60 * 1000;
 function cacheGet(t){ const e = priceCache.get(t); if(!e||Date.now()-e.ts>CACHE_TTL){priceCache.delete(t);return null;} return e; }
 function cacheSet(t,d){ priceCache.set(t,{...d,ts:Date.now()}); }
+
+
+// Appels à la base : renvoie à l'écran de connexion si la session a expiré (401)
+async function sbFetch(url,opts){
+  const r=await fetch(url,opts);
+  if(r.status===401){ doLogout(); toast('Session expirée — reconnectez-vous','warn'); throw new Error('Session expirée'); }
+  return r;
+}
 
 // ============================================================
 // UI HELPERS
@@ -681,7 +687,7 @@ function showTickers(){ showScreen('tickers-screen'); setTimeout(()=>document.ge
 // SUPABASE — STOCKS (dashboard, list_id null)
 // ============================================================
 async function dbLoad(){
-  const r=await fetch(SB_TBL+'?list_id=is.null&order=sort_order.asc.nullslast,id.asc',{headers:SB_HDR});
+  const r=await sbFetch(SB_TBL+'?list_id=is.null&order=sort_order.asc.nullslast,id.asc',{headers:SB_HDR});
   if(!r.ok) throw new Error('Erreur chargement ('+r.status+')');
   stocks=mapRows(await r.json());
   if(stocks.length){
@@ -691,7 +697,7 @@ async function dbLoad(){
 }
 
 async function dbLoadListStocks(listId){
-  const r=await fetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId)+'&order=sort_order.asc.nullslast,id.asc',{headers:SB_HDR});
+  const r=await sbFetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId)+'&order=sort_order.asc.nullslast,id.asc',{headers:SB_HDR});
   if(!r.ok) throw new Error('Erreur chargement liste ('+r.status+')');
   listStocks=mapRows(await r.json());
   if(listStocks.length){
@@ -725,7 +731,7 @@ async function dbUpsert(s){
     target:s.target, slk:!!s.slk, ttf:!!s.ttf,
     list_id:s.listId||null, sort_order:s.sortOrder??0, updated_at:now
   };
-  const r=await fetch(SB_TBL,{
+  const r=await sbFetch(SB_TBL,{
     method:'POST',
     headers:{...SB_HDR,'Prefer':'resolution=merge-duplicates,return=minimal'},
     body:JSON.stringify(row)
@@ -735,24 +741,24 @@ async function dbUpsert(s){
 }
 
 async function dbPatch(id,fields){
-  const r=await fetch(SB_TBL+'?id=eq.'+encodeURIComponent(id),{
+  const r=await sbFetch(SB_TBL+'?id=eq.'+encodeURIComponent(id),{
     method:'PATCH',headers:{...SB_HDR,'Prefer':'return=minimal'},body:JSON.stringify(fields)
   });
   if(!r.ok) throw new Error('Patch failed '+r.status);
 }
 
 async function dbDelete(id){
-  const r=await fetch(SB_TBL+'?id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:SB_HDR});
+  const r=await sbFetch(SB_TBL+'?id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:SB_HDR});
   if(!r.ok) throw new Error('Delete failed '+r.status);
 }
 
 async function dbDeleteAll(){
-  const r=await fetch(SB_TBL+'?list_id=is.null',{method:'DELETE',headers:SB_HDR});
+  const r=await sbFetch(SB_TBL+'?list_id=is.null',{method:'DELETE',headers:SB_HDR});
   if(!r.ok) throw new Error('DeleteAll failed '+r.status);
 }
 
 async function dbDeleteListStocks(listId){
-  const r=await fetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId),{method:'DELETE',headers:SB_HDR});
+  const r=await sbFetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId),{method:'DELETE',headers:SB_HDR});
   if(!r.ok) throw new Error('DeleteListStocks failed '+r.status);
 }
 
@@ -764,7 +770,7 @@ async function dbSaveOrder(orderedIds){
 // SUPABASE — LISTS CRUD
 // ============================================================
 async function dbLoadLists(){
-  const r=await fetch(SB_LISTS+'?order=created_at.asc',{headers:SB_HDR});
+  const r=await sbFetch(SB_LISTS+'?order=created_at.asc',{headers:SB_HDR});
   if(!r.ok) throw new Error('Erreur chargement listes ('+r.status+')');
   lists=await r.json();
 }
@@ -772,7 +778,7 @@ async function dbLoadLists(){
 async function dbCreateList(name){
   const id=Date.now().toString();
   const row={id,name,created_at:new Date().toISOString()};
-  const r=await fetch(SB_LISTS,{
+  const r=await sbFetch(SB_LISTS,{
     method:'POST',headers:{...SB_HDR,'Prefer':'resolution=merge-duplicates,return=minimal'},
     body:JSON.stringify(row)
   });
@@ -781,7 +787,7 @@ async function dbCreateList(name){
 }
 
 async function dbRenameList(id,name){
-  const r=await fetch(SB_LISTS+'?id=eq.'+encodeURIComponent(id),{
+  const r=await sbFetch(SB_LISTS+'?id=eq.'+encodeURIComponent(id),{
     method:'PATCH',headers:{...SB_HDR,'Prefer':'return=minimal'},
     body:JSON.stringify({name})
   });
@@ -791,28 +797,40 @@ async function dbRenameList(id,name){
 async function dbDeleteList(id){
   // Supprimer d'abord les actions de la liste
   await dbDeleteListStocks(id);
-  const r=await fetch(SB_LISTS+'?id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:SB_HDR});
+  const r=await sbFetch(SB_LISTS+'?id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:SB_HDR});
   if(!r.ok) throw new Error('DeleteList failed '+r.status);
 }
 
 // ============================================================
 // AUTH
 // ============================================================
-function doLogin(){
+async function doLogin(){
   const u=document.getElementById('l-user').value.trim();
   const p=document.getElementById('l-pass').value;
   const err=document.getElementById('login-err');
-  if(CREDS[u]&&CREDS[u]===p){
-    err.style.display='none';
-    showLoader(true,'Chargement…');
-    Promise.all([dbLoad(),dbLoadLists()])
-      .then(()=>{showLoader(false);showScreen('dash-screen');render();})
-      .catch(e=>{showLoader(false);toast('Erreur connexion Supabase : '+e.message,'err');});
-  } else { err.style.display='block'; }
+  showLoader(true,'Vérification…');
+  let token=null, status=0;
+  try{
+    const r=await fetch('/.netlify/functions/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u,password:p})});
+    status=r.status;
+    if(r.ok) token=(await r.json()).token;
+  } catch(e){ status=0; }
+  if(!token){
+    showLoader(false);
+    err.textContent=status===401?'Identifiants incorrects. Réessayez.':'Connexion impossible (code '+status+'). Réessayez.';
+    err.style.display='block';
+    return;
+  }
+  err.style.display='none';
+  SB_HDR['x-henward-token']=token;
+  showLoader(true,'Chargement…');
+  Promise.all([dbLoad(),dbLoadLists()])
+    .then(()=>{showLoader(false);showScreen('dash-screen');render();})
+    .catch(e=>{showLoader(false);toast('Erreur connexion base de données : '+e.message,'err');});
 }
 document.getElementById('l-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 document.getElementById('l-user').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('l-pass').focus();});
-function doLogout(){ stocks=[];lists=[];listStocks=[];showScreen('login-screen'); }
+function doLogout(){ delete SB_HDR['x-henward-token']; document.getElementById('l-pass').value=''; stocks=[];lists=[];listStocks=[];showScreen('login-screen'); }
 
 // ============================================================
 // SLK FILTER
@@ -871,7 +889,7 @@ function renderListsPanel(){
 
 async function loadListCount(listId){
   try{
-    const r=await fetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId)+'&select=id',{headers:SB_HDR});
+    const r=await sbFetch(SB_TBL+'?list_id=eq.'+encodeURIComponent(listId)+'&select=id',{headers:SB_HDR});
     if(!r.ok) return;
     const rows=await r.json();
     const el=document.getElementById('lpc-'+listId);
