@@ -266,6 +266,31 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
   .check-group{flex-direction:column}
   .lub-time{font-size:14px}
 }
+
+/* ===== ÉVOLUTION : niveau, second objectif, pop-up compacte ===== */
+.niv-badge{font-size:10.8px;font-weight:700;padding:1px 7px;border-radius:5px;background:var(--accent);color:#fff;border:1px solid var(--accent);white-space:nowrap}
+.prog-pct-row{position:relative;display:flex;align-items:center;justify-content:center;margin-top:5px}
+.prog-pct-row .prog-pct{margin-top:0}
+.obj2-badge{position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:12px;font-weight:600;padding:2px 10px;border-radius:var(--r);border:1px solid;white-space:nowrap;line-height:1.4}
+.obj2-badge.up{background:var(--green-bg);color:var(--green);border-color:var(--green-b)}
+.obj2-badge.dn{background:var(--red-bg);color:var(--red);border-color:var(--red-b)}
+.modal-compact .modal-head{padding:14px 24px 12px}
+.modal-compact .modal-body{padding:14px 24px 10px}
+.modal-compact .mfield{margin-bottom:10px}
+.modal-compact .mfield input{padding:8px 14px}
+.modal-compact .check-item{padding:8px 14px}
+.modal-compact .modal-foot{padding:12px 24px}
+.modal-compact .mfield .check-item{display:flex;text-transform:none;font-size:13px}
+.modal-compact .mfield .check-item .cb-label{text-transform:none;letter-spacing:0}
+.opt-extra{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+.opt-extra label{display:block;font-size:11px;font-weight:600;color:var(--txt2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.4px}
+.opt-extra input{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:var(--r);padding:8px 14px;color:var(--txt);font-size:14px;outline:none;transition:border-color 0.2s}
+.opt-extra input:focus{border-color:var(--accent)}
+@media(max-width:700px){
+  .prog-pct-row{flex-direction:column;gap:4px}
+  .obj2-badge{position:static;transform:none}
+  .opt-extra{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
@@ -511,7 +536,7 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
 
 <!-- MODAL STOCK -->
 <div class="overlay" id="overlay">
-  <div class="modal">
+  <div class="modal modal-compact">
     <div class="modal-head">
       <h2 id="modal-title">Ajouter une action</h2>
       <button class="modal-close" onclick="closeModal()">
@@ -530,7 +555,7 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
           <input type="text" id="f-name" placeholder="LVMH, Eramet…"/>
         </div>
         <div class="mfield">
-          <label>Cours actuel (optionnel)</label>
+          <label>Cours actuel (option)</label>
           <input type="number" id="f-price" placeholder="Auto via Yahoo" step="0.01"/>
           <div class="hint">Vide = récupération auto</div>
         </div>
@@ -545,13 +570,17 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
           <label class="check-item slk-check">
             <input type="checkbox" id="f-slk"/>
             <div class="cb-box"></div>
-            <span class="cb-label">⭐ Sélection SLK</span>
+            <span class="cb-label">⭐ SLK</span>
           </label>
           <label class="check-item ttf-check">
             <input type="checkbox" id="f-ttf"/>
             <div class="cb-box"></div>
             <span class="cb-label">ASAP</span>
           </label>
+        </div>
+        <div class="opt-extra">
+          <div><label>Niveau</label><input type="number" id="f-niveau" step="any" placeholder="optionnel"/></div>
+          <div><label>Second objectif</label><input type="number" id="f-obj2" step="any" placeholder="optionnel"/></div>
         </div>
       </div>
     </div>
@@ -719,6 +748,8 @@ function mapRows(rows){
     ttf:     row.ttf,
     listId:  row.list_id||null,
     sortOrder: row.sort_order??0,
+    niveau:  row.niveau??null,
+    obj2:    row.second_obj??null,
     updAt:   row.updated_at
   }));
 }
@@ -729,7 +760,8 @@ async function dbUpsert(s){
     id:s.id, ticker:s.ticker, name:s.name,
     price:s.price??null, change_val:s.change??null, change_pct:s.changeP??null,
     target:s.target, slk:!!s.slk, ttf:!!s.ttf,
-    list_id:s.listId||null, sort_order:s.sortOrder??0, updated_at:now
+    list_id:s.listId||null, sort_order:s.sortOrder??0, updated_at:now,
+    niveau:s.niveau??null, second_obj:s.obj2??null
   };
   const r=await sbFetch(SB_TBL,{
     method:'POST',
@@ -996,8 +1028,10 @@ function openModal(id){
     document.getElementById('f-target').value=s.target||'';
     document.getElementById('f-slk').checked=!!s.slk;
     document.getElementById('f-ttf').checked=!!s.ttf;
+    document.getElementById('f-niveau').value=s.niveau!=null?s.niveau:'';
+    document.getElementById('f-obj2').value=s.obj2!=null?s.obj2:'';
   } else {
-    ['f-ticker','f-name','f-price','f-target'].forEach(i=>document.getElementById(i).value='');
+    ['f-ticker','f-name','f-price','f-target','f-niveau','f-obj2'].forEach(i=>document.getElementById(i).value='');
     document.getElementById('f-slk').checked=false;
     document.getElementById('f-ttf').checked=false;
   }
@@ -1017,6 +1051,10 @@ async function saveStock(){
   const target  =parseFloat(document.getElementById('f-target').value);
   const slk     =document.getElementById('f-slk').checked;
   const ttf     =document.getElementById('f-ttf').checked;
+  const niveauRaw=parseFloat(document.getElementById('f-niveau').value);
+  const obj2Raw =parseFloat(document.getElementById('f-obj2').value);
+  const niveau  =isNaN(niveauRaw)?null:niveauRaw;
+  const obj2    =isNaN(obj2Raw)?null:obj2Raw;
   if(!ticker||!name){ toast('Ticker et nom requis','err'); return; }
   if(!target||isNaN(target)){ toast('Objectif de cours requis','err'); return; }
 
@@ -1045,7 +1083,7 @@ async function saveStock(){
     sortOrder=contextArr.length?Math.max(...contextArr.map(x=>x.sortOrder||0))+1:1;
   }
 
-  const stockObj={id:editId||Date.now().toString(),ticker,name,price,change,changeP,target,slk,ttf,listId:targetListId,sortOrder};
+  const stockObj={id:editId||Date.now().toString(),ticker,name,price,change,changeP,target,slk,ttf,niveau,obj2,listId:targetListId,sortOrder};
   try{
     await dbUpsert(stockObj);
     if(isListCtx){
@@ -1238,11 +1276,12 @@ function buildRows(list){
         '<div class="ticker-row">'+
           '<span class="ticker-badge">'+escH(s.ticker)+'</span>'+
           (s.ttf?'<span class="ttf-badge">ASAP</span>':'')+
+          nivBadge(s)+
         '</div>'+
       '</div></td>'+
       '<td>'+pStr+chgHtml+'</td>'+
       '<td><div class="target-val">'+(s.target?fmt(s.target)+' €':'—')+'</div></td>'+
-      '<td>'+buildProgress(s.price,s.target)+'</td>'+
+      '<td>'+progCell(s)+'</td>'+
       '<td><div class="row-actions">'+
         '<button class="ra-btn" onclick="openModal(\''+s.id+'\')" title="Modifier">'+
           '<svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'+
@@ -1256,6 +1295,25 @@ function buildRows(list){
       '</div></td>'+
     '</tr>';
   }).join('');
+}
+
+
+// ============================================================
+// NIVEAU & SECOND OBJECTIF (affichage facultatif : rien si non renseigné)
+// ============================================================
+function nivBadge(s){
+  if(s.niveau==null||isNaN(s.niveau)) return '';
+  return '<span class="niv-badge" title="Niveau">'+s.niveau.toLocaleString('fr-FR',{maximumFractionDigits:6})+'</span>';
+}
+function obj2Html(s){
+  if(s.obj2==null||!s.obj2||s.price==null) return '';
+  const e=(s.price-s.obj2)/s.obj2*100;
+  return '<span class="obj2-badge '+(e>=0?'up':'dn')+'" title="Écart vs 2nd objectif ('+fmt(s.obj2)+' €)">'+(e>=0?'+':'')+e.toFixed(1)+'%</span>';
+}
+function progCell(s){
+  const base=buildProgress(s.price,s.target), b=obj2Html(s);
+  if(!b) return base;
+  return base.replace(/<div class="prog-pct"([^>]*)>(.*?)<\/div><\/div>$/,'<div class="prog-pct-row"><div class="prog-pct"$1>$2</div>'+b+'</div></div>');
 }
 
 function render(){
