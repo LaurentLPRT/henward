@@ -349,6 +349,9 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span class="hide-mobile">Ajouter Action</span>
       </button>
+      <button class="btn-icon" onclick="copyNetLog()" title="Diagnostic : copier le journal de connexion">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </button>
       <button class="btn-icon" onclick="doLogout()" title="Déconnexion">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
@@ -420,6 +423,9 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
       <button class="btn btn-dark" onclick="openModal()">
         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span class="hide-mobile">Ajouter Action</span>
+      </button>
+      <button class="btn-icon" onclick="copyNetLog()" title="Diagnostic : copier le journal de connexion">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       </button>
     </div>
   </div>
@@ -670,11 +676,58 @@ function cacheGet(t){ const e = priceCache.get(t); if(!e||Date.now()-e.ts>CACHE_
 function cacheSet(t,d){ priceCache.set(t,{...d,ts:Date.now()}); }
 
 
-// Appels à la base : renvoie à l'écran de connexion si la session a expiré (401)
+// ============================================================
+// RÉSEAU FIABLE : délai maximal + nouvelles tentatives + journal de diagnostic
+// ============================================================
+const SB_TIMEOUT_MS=12000, SB_TRIES=3, QUOTE_TIMEOUT_MS=10000;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const netLog=[];                       // journal en mémoire (rien n'est envoyé nulle part)
+function logNet(kind,info){ netLog.push(Object.assign({t:new Date().toISOString(),kind:kind},info||{})); if(netLog.length>300) netLog.shift(); }
+const shortUrl=u=>String(u).split('?')[0];
+
 async function sbFetch(url,opts){
-  const r=await fetch(url,opts);
-  if(r.status===401){ doLogout(); toast('Session expirée — reconnectez-vous','warn'); throw new Error('Session expirée'); }
-  return r;
+  opts=opts||{};
+  let lastErr=null;
+  for(let i=0;i<SB_TRIES;i++){
+    const c=new AbortController();
+    const t0=performance.now();
+    const timer=setTimeout(()=>c.abort(),SB_TIMEOUT_MS);
+    try{
+      const r=await fetch(url,Object.assign({},opts,{signal:c.signal,cache:'no-store'}));
+      clearTimeout(timer);
+      if(r.status===401){ doLogout(); toast('Session expirée — reconnectez-vous','warn'); throw new Error('Session expirée'); }
+      if(r.status>=500&&i<SB_TRIES-1){ logNet('http'+r.status,{url:shortUrl(url),essai:i+1,ms:Math.round(performance.now()-t0)}); await sleep(800*(i+1)); continue; }
+      if(i>0) logNet('ok_apres_nouvel_essai',{url:shortUrl(url),essai:i+1});
+      return r;
+    }catch(e){
+      clearTimeout(timer);
+      if(e&&e.message==='Session expirée') throw e;
+      lastErr=e;
+      logNet(e&&e.name==='AbortError'?'delai_depasse':'erreur_reseau',{url:shortUrl(url),essai:i+1,ms:Math.round(performance.now()-t0),err:e&&e.message,enLigne:navigator.onLine});
+      if(i<SB_TRIES-1) await sleep(800*(i+1));
+    }
+  }
+  probeSite();
+  throw new Error('Réseau indisponible ou trop lent ('+(lastErr&&lastErr.name==='AbortError'?'délai dépassé':(lastErr&&lastErr.message)||'inconnu')+')');
+}
+
+// Après un échec : le site et la fonction répondent-ils encore depuis cet onglet ?
+let probing=false;
+async function probeSite(){
+  if(probing) return; probing=true;
+  const one=async(label,url,opts)=>{
+    const c=new AbortController(); const t0=performance.now(); const timer=setTimeout(()=>c.abort(),6000);
+    try{ const r=await fetch(url,Object.assign({},opts,{signal:c.signal,cache:'no-store'})); clearTimeout(timer); logNet('sonde_'+label,{statut:r.status,ms:Math.round(performance.now()-t0)}); }
+    catch(e){ clearTimeout(timer); logNet('sonde_'+label,{err:e&&e.name==='AbortError'?'delai_depasse':(e&&e.message),ms:Math.round(performance.now()-t0)}); }
+  };
+  try{ await Promise.all([one('page','/',{method:'HEAD'}),one('fonction',SB_TBL+'?limit=0',{})]); } finally{ probing=false; }
+}
+
+function copyNetLog(){
+  const txt=['Journal de connexion Henward','Heure : '+new Date().toISOString(),'Onglet ouvert depuis : '+Math.round(performance.now()/60000)+' min','Navigateur en ligne : '+navigator.onLine,'Navigateur : '+navigator.userAgent,'Entrées : '+netLog.length,''].concat(netLog.map(e=>JSON.stringify(e))).join('\n');
+  const done=()=>toast('Journal de connexion copié ('+netLog.length+' entrée(s))');
+  const fallback=()=>{ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');done();}catch(e){toast('Copie impossible','err');} ta.remove(); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(fallback); else fallback();
 }
 
 // ============================================================
@@ -682,12 +735,12 @@ async function sbFetch(url,opts){
 // ============================================================
 function showLoader(on,txt){ const l=document.getElementById('loader'); l.classList.toggle('show',on); if(txt) l.querySelector('.loader-txt').textContent=txt; }
 
-function toast(msg,type='ok'){
+function toast(msg,type='ok',ms=3500){
   const t=document.getElementById('toast');
   t.textContent=(type==='ok'?'✓ ':type==='warn'?'⚠ ':'✗ ')+msg;
   t.className='toast show '+type;
   clearTimeout(t._t);
-  t._t=setTimeout(()=>t.classList.remove('show'),3500);
+  t._t=setTimeout(()=>t.classList.remove('show'),ms);
 }
 
 function applyTime(d,prefix='sc'){
@@ -798,7 +851,9 @@ async function dbDeleteListStocks(listId){
 }
 
 async function dbSaveOrder(orderedIds){
-  await Promise.all(orderedIds.map((id,idx)=>dbPatch(id,{sort_order:idx+1})));
+  let next=0;   // 4 requêtes simultanées au maximum (et non une par action en même temps)
+  const worker=async()=>{ while(next<orderedIds.length){ const idx=next++; await dbPatch(orderedIds[idx],{sort_order:idx+1}); } };
+  await Promise.all([worker(),worker(),worker(),worker()]);
 }
 
 // ============================================================
@@ -846,7 +901,8 @@ async function doLogin(){
   showLoader(true,'Vérification…');
   let token=null, status=0;
   try{
-    const r=await fetch('/.netlify/functions/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u,password:p})});
+    const lc=new AbortController(); const lt=setTimeout(()=>lc.abort(),SB_TIMEOUT_MS);
+    const r=await fetch('/.netlify/functions/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u,password:p}),signal:lc.signal}); clearTimeout(lt);
     status=r.status;
     if(r.ok) token=(await r.json()).token;
   } catch(e){ status=0; }
@@ -1157,18 +1213,26 @@ async function fetchQuote(ticker){
   ticker=ticker.trim().toUpperCase().replace(/\s/g,'');
   const cached=cacheGet(ticker);
   if(cached) return cached;
+  const t0=performance.now();
   try{
     const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),10000);
+    const timer=setTimeout(()=>controller.abort(),QUOTE_TIMEOUT_MS);
     const r=await fetch(QUOTE_FN+'?ticker='+encodeURIComponent(ticker),{signal:controller.signal});
     clearTimeout(timer);
-    if(!r.ok) return null;
+    if(!r.ok){ logNet('cours_http'+r.status,{ticker:ticker,ms:Math.round(performance.now()-t0)}); return null; }
     const data=await r.json();
     if(data.error||!data.price) return null;
     const result={price:data.price,change:data.change,changeP:data.changeP};
     cacheSet(ticker,result);
     return result;
-  } catch(e){ return null; }
+  } catch(e){ logNet(e&&e.name==='AbortError'?'cours_delai_depasse':'cours_erreur_reseau',{ticker:ticker,ms:Math.round(performance.now()-t0),err:e&&e.message,enLigne:navigator.onLine}); return null; }
+}
+
+// Bilan d'une actualisation (rouge si tout a échoué, orange si partiel)
+function toastRefresh(ok,fail,aborted,total){
+  if(aborted){ toast('Actualisation interrompue : service de cours injoignable ('+ok+' mis à jour, '+(total-ok)+' non actualisés). Bouton « diagnostic » en haut pour copier le journal.','err',9000); probeSite(); return; }
+  if(fail>0) toast(ok+' mis à jour, '+fail+' en échec',ok===0?'err':'warn',6000);
+  else toast(ok+' cours actualisés');
 }
 
 // ============================================================
@@ -1187,20 +1251,21 @@ async function refreshAll(){
   };
   setBtn(true);
   const now=new Date();
-  let ok=0,fail=0;
+  let ok=0,fail=0,consec=0,aborted=false;
   for(const s of stocks){
     priceCache.delete(s.ticker);
     const q=await fetchQuote(s.ticker);
     if(q){
+      consec=0;
       s.price=q.price; s.change=q.change; s.changeP=q.changeP; s.updAt=now.toISOString();
       failedIds.delete(s.id);
       dbPatch(s.id,{price:q.price,change_val:q.change,change_pct:q.changeP,updated_at:now.toISOString()}).catch(()=>{});
       ok++;
-    } else { failedIds.add(s.id); fail++; }
+    } else { failedIds.add(s.id); fail++; consec++; if(consec>=3){ aborted=true; break; } }
   }
   render(); applyTime(now,'sc');
   setBtn(false);
-  toast(fail>0?ok+' mis à jour, '+fail+' en échec':ok+' cours actualisés');
+  toastRefresh(ok,fail,aborted,stocks.length);
 }
 
 // ============================================================
@@ -1219,20 +1284,21 @@ async function refreshList(){
   };
   setBtn(true);
   const now=new Date();
-  let ok=0,fail=0;
+  let ok=0,fail=0,consec=0,aborted=false;
   for(const s of listStocks){
     priceCache.delete(s.ticker);
     const q=await fetchQuote(s.ticker);
     if(q){
+      consec=0;
       s.price=q.price; s.change=q.change; s.changeP=q.changeP; s.updAt=now.toISOString();
       failedIds.delete(s.id);
       dbPatch(s.id,{price:q.price,change_val:q.change,change_pct:q.changeP,updated_at:now.toISOString()}).catch(()=>{});
       ok++;
-    } else { failedIds.add(s.id); fail++; }
+    } else { failedIds.add(s.id); fail++; consec++; if(consec>=3){ aborted=true; break; } }
   }
   renderList(); applyTime(now,'list');
   setBtn(false);
-  toast(fail>0?ok+' mis à jour, '+fail+' en échec':ok+' cours actualisés');
+  toastRefresh(ok,fail,aborted,listStocks.length);
 }
 
 // ============================================================
@@ -1388,9 +1454,10 @@ function enableDragReorder(tbodyId, getArray, setArray, isFiltered){
     });
   });
 
-  tbody.addEventListener('dragend', async ()=>{
+  tbody.ondragend=async ()=>{   // affectation (et non addEventListener) : un seul écouteur, remplacé à chaque rendu
     const newOrderIds=Array.from(tbody.querySelectorAll('tr[data-id]')).map(tr=>tr.dataset.id);
     const arr=getArray();
+    if(newOrderIds.join(',')===arr.map(x=>x.id).join(',')) return;   // ordre inchangé : aucune requête
     const reordered=newOrderIds.map(id=>arr.find(s=>s.id===id)).filter(Boolean);
     reordered.forEach((s,idx)=>{ s.sortOrder=idx+1; });
     setArray(reordered);
@@ -1400,7 +1467,7 @@ function enableDragReorder(tbodyId, getArray, setArray, isFiltered){
     } catch(e){
       toast('Erreur sauvegarde ordre : '+e.message,'err');
     }
-  });
+  };
 }
 
 // ============================================================
@@ -1609,6 +1676,22 @@ function useTicker(ticker){
 }
 
 document.getElementById('ticker-search').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
+
+// ============================================================
+// REPRISE APRÈS LONGUE ABSENCE : rechargement silencieux des données
+// ============================================================
+let hiddenAt=0;
+document.addEventListener('visibilitychange',async()=>{
+  if(document.hidden){ hiddenAt=Date.now(); return; }
+  if(!hiddenAt||Date.now()-hiddenAt<10*60*1000) return;
+  hiddenAt=0;
+  try{
+    if(document.getElementById('list-screen').classList.contains('active')&&currentListId){ await dbLoadListStocks(currentListId); renderList(); }
+    else if(document.getElementById('dash-screen').classList.contains('active')){ await dbLoad(); render(); }
+  }catch(e){ if(e.message!=='Session expirée') toast('Reconnexion impossible : '+e.message,'warn'); }
+});
+window.addEventListener('offline',()=>{ logNet('navigateur_hors_ligne'); toast('Connexion internet perdue','warn'); });
+window.addEventListener('online',()=>{ logNet('navigateur_en_ligne'); toast('Connexion rétablie'); });
 </script>
 </body>
 </html>

@@ -43,11 +43,21 @@ exports.handler = async function (event) {
     opts.body = event.isBase64Encoded ? Buffer.from(event.body || '', 'base64').toString('utf8') : event.body;
   }
 
+  // Délai maximal vers Supabase + une ligne de journal par appel (méthode, table, code, durée)
+  const t0 = Date.now();
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  opts.signal = ctl.signal;
   try {
     const res = await fetch(url, opts);
     const text = await res.text();
+    clearTimeout(timer);
+    console.log(JSON.stringify({ m: event.httpMethod, t: table, s: res.status, ms: Date.now() - t0 }));
     return { statusCode: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' }, body: text };
   } catch (e) {
-    return json(502, { error: 'base de données injoignable' });
+    clearTimeout(timer);
+    const timeout = !!(e && e.name === 'AbortError');
+    console.log(JSON.stringify({ m: event.httpMethod, t: table, err: timeout ? 'timeout' : 'injoignable', ms: Date.now() - t0 }));
+    return json(timeout ? 504 : 502, { error: timeout ? 'base de données trop lente' : 'base de données injoignable' });
   }
 };
