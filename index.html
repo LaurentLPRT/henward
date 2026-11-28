@@ -74,8 +74,8 @@ input,select,button,textarea{font-family:'Inter',sans-serif}
 
 /* PANEL / TABLE */
 .main{padding:0 24px 24px;flex:1}
-.panel{background:var(--surface);border-radius:var(--rl);box-shadow:var(--sh);overflow:hidden}
-.panel-header{display:flex;align-items:center;justify-content:space-between;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.1);background:var(--accent)}
+.panel{background:var(--surface);border-radius:var(--rl);box-shadow:var(--sh);overflow:visible}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.1);background:var(--accent);border-radius:var(--rl) var(--rl) 0 0}
 .panel-title{font-size:16px;font-weight:700;color:#fff}
 .panel-sub{font-size:12px;color:rgba(255,255,255,0.55);margin-top:2px}
 .ph-right{display:flex;align-items:center;gap:8px}
@@ -260,9 +260,13 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
   .last-update-box .lub-date{display:none}
   .btn-clr-panel span{display:none}
   .lists-panel{width:85vw}
+  .panel-header{flex-direction:column;align-items:stretch;gap:10px}
+  .ph-right{flex-wrap:wrap;gap:6px}
+  .btn-actualiser{margin-left:auto}
 }
 @media(max-width:420px){
   thead th:nth-child(2),td:nth-child(2){display:none}
+  .sort-label{display:none}
   .check-group{flex-direction:column}
   .lub-time{font-size:14px}
 }
@@ -294,6 +298,20 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
   .obj2-slot{flex:0 0 auto;min-width:0;justify-content:center}
   .opt-extra{grid-template-columns:1fr}
 }
+/* TRI DES ACTIONS */
+.sort-wrap{position:relative}
+.btn-trier{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1.5px solid rgba(255,255,255,0.3);border-radius:var(--r);padding:6px 12px;font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;transition:all 0.15s}
+.btn-trier:hover{opacity:0.9}
+.btn-trier:disabled{opacity:0.5;cursor:not-allowed}
+.btn-trier svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.btn-trier svg.chev{width:12px;height:12px}
+.sort-menu{display:none;position:absolute;top:calc(100% + 8px);left:0;width:300px;max-width:calc(100vw - 48px);background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:6px;z-index:60}
+.sort-menu.open{display:block}
+.sort-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--surface);border:0;border-radius:8px;padding:9px 12px;font-size:13px;font-weight:500;color:var(--txt);cursor:pointer}
+.sort-item:hover{background:var(--blue-bg);color:var(--blue)}
+.sort-item small{display:block;font-size:11px;font-weight:400;color:var(--txt3)}
+.sort-item:hover small{color:var(--blue)}
+.sort-item svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -365,9 +383,19 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
           <div class="panel-sub">Cours différés ≤15 min · Yahoo Finance · <span id="panel-count">0 action(s)</span></div>
         </div>
         <div class="ph-right">
+          <div class="sort-wrap">
+          <button class="btn-trier" id="sort-btn-dash" onclick="toggleSortMenu(event,'sort-menu-dash')" title="Trier les actions" aria-label="Trier les actions">
+            <svg viewBox="0 0 24 24"><polyline points="3 8 7 4 11 8"/><line x1="7" y1="4" x2="7" y2="20"/><polyline points="21 16 17 20 13 16"/><line x1="17" y1="20" x2="17" y2="4"/></svg><span class="sort-label">Trier</span><svg class="chev" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="sort-menu" id="sort-menu-dash">
+            <button class="sort-item" onclick="sortCurrent('alpha')"><svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="14" y2="6"/><line x1="4" y1="12" x2="11" y2="12"/><line x1="4" y1="18" x2="8" y2="18"/></svg><span>Ordre alphabétique<small>De A à Z</small></span></button>
+            <button class="sort-item" onclick="sortCurrent('prog-asc')"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg><span>Progression croissante<small>Du plus négatif au plus positif</small></span></button>
+            <button class="sort-item" onclick="sortCurrent('prog-desc')"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg><span>Progression décroissante<small>Du plus positif au plus négatif</small></span></button>
+          </div>
+        </div>
           <button class="btn-clr-panel" onclick="clearAll()" title="Effacer toutes les actions">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-            CLR
+            <span>CLR</span>
           </button>
           <div class="last-update-box">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#1a1f2e" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -382,7 +410,7 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
           </button>
         </div>
       </div>
-      <div style="overflow-x:auto">
+      <div style="overflow-x:auto;border-radius:0 0 var(--rl) var(--rl)">
         <table>
           <thead><tr><th>Action</th><th>Prix Actuel</th><th>Prix Cible</th><th>Progression</th><th></th></tr></thead>
           <tbody id="stocks-body">
@@ -437,9 +465,19 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
           <div class="panel-sub">Cours différés ≤15 min · Yahoo Finance · <span id="list-panel-count">0 action(s)</span></div>
         </div>
         <div class="ph-right">
+          <div class="sort-wrap">
+          <button class="btn-trier" id="sort-btn-list" onclick="toggleSortMenu(event,'sort-menu-list')" title="Trier les actions" aria-label="Trier les actions">
+            <svg viewBox="0 0 24 24"><polyline points="3 8 7 4 11 8"/><line x1="7" y1="4" x2="7" y2="20"/><polyline points="21 16 17 20 13 16"/><line x1="17" y1="20" x2="17" y2="4"/></svg><span class="sort-label">Trier</span><svg class="chev" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="sort-menu" id="sort-menu-list">
+            <button class="sort-item" onclick="sortCurrent('alpha')"><svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="14" y2="6"/><line x1="4" y1="12" x2="11" y2="12"/><line x1="4" y1="18" x2="8" y2="18"/></svg><span>Ordre alphabétique<small>De A à Z</small></span></button>
+            <button class="sort-item" onclick="sortCurrent('prog-asc')"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg><span>Progression croissante<small>Du plus négatif au plus positif</small></span></button>
+            <button class="sort-item" onclick="sortCurrent('prog-desc')"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg><span>Progression décroissante<small>Du plus positif au plus négatif</small></span></button>
+          </div>
+        </div>
           <button class="btn-clr-panel" onclick="clearList()" title="Effacer toutes les actions de cette liste">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-            CLR
+            <span>CLR</span>
           </button>
           <div class="last-update-box">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#1a1f2e" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -454,7 +492,7 @@ tbody tr.drag-over-bottom{box-shadow:inset 0 -2px 0 0 var(--blue)}
           </button>
         </div>
       </div>
-      <div style="overflow-x:auto">
+      <div style="overflow-x:auto;border-radius:0 0 var(--rl) var(--rl)">
         <table>
           <thead><tr><th>Action</th><th>Prix Actuel</th><th>Prix Cible</th><th>Progression</th><th></th></tr></thead>
           <tbody id="list-stocks-body">
@@ -1388,6 +1426,7 @@ function progCell(s){
 function render(){
   const tb=document.getElementById('stocks-body');
   const list=filterSLK?stocks.filter(s=>s.slk):stocks;
+  document.getElementById('sort-btn-dash').disabled=filterSLK;
   document.getElementById('panel-count').textContent=list.length+' action(s)';
   if(!list.length){
     const msg=filterSLK
@@ -1403,6 +1442,7 @@ function render(){
 function renderList(){
   const tb=document.getElementById('list-stocks-body');
   const list=filterSLKList?listStocks.filter(s=>s.slk):listStocks;
+  document.getElementById('sort-btn-list').disabled=filterSLKList;
   document.getElementById('list-panel-count').textContent=list.length+' action(s)';
   if(!list.length){
     const msg=filterSLKList
@@ -1692,6 +1732,42 @@ document.addEventListener('visibilitychange',async()=>{
 });
 window.addEventListener('offline',()=>{ logNet('navigateur_hors_ligne'); toast('Connexion internet perdue','warn'); });
 window.addEventListener('online',()=>{ logNet('navigateur_en_ligne'); toast('Connexion rétablie'); });
+
+// ============================================================
+// TRI DES ACTIONS : alphabétique / progression (objectif de cours uniquement, jamais le second objectif)
+// L'ordre obtenu est enregistré comme un déplacement manuel ; le glisser-déposer reste utilisable ensuite.
+// ============================================================
+function progOf(s){ return (s.price!=null&&s.target)?(s.price-s.target)/s.target*100:null; }
+function sortedBy(arr,mode){
+  const idx=new Map(arr.map((s,i)=>[s,i]));
+  if(mode==='alpha') return arr.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'fr',{sensitivity:'base'})||idx.get(a)-idx.get(b));
+  const withP=arr.filter(s=>progOf(s)!==null), noP=arr.filter(s=>progOf(s)===null);
+  const dir=mode==='prog-asc'?1:-1;
+  withP.sort((a,b)=>(progOf(a)-progOf(b))*dir||idx.get(a)-idx.get(b));
+  return withP.concat(noP);   // sans cours ou sans objectif : à la fin, dans leur ordre actuel
+}
+function closeSortMenus(){ document.querySelectorAll('.sort-menu').forEach(m=>m.classList.remove('open')); }
+function toggleSortMenu(ev,id){
+  ev.stopPropagation();
+  const m=document.getElementById(id); const open=!m.classList.contains('open');
+  closeSortMenus(); if(open) m.classList.add('open');
+}
+document.addEventListener('click',closeSortMenus);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSortMenus(); });
+async function sortCurrent(mode){
+  closeSortMenus();
+  const isList=document.getElementById('list-screen').classList.contains('active');
+  if(isList?filterSLKList:filterSLK){ toast('Désactivez le filtre ⭐ SLK pour trier','warn'); return; }
+  const arr=isList?listStocks:stocks;
+  if(arr.length<2) return;
+  const sorted=sortedBy(arr,mode);
+  if(sorted.map(s=>s.id).join(',')===arr.map(s=>s.id).join(',')){ toast('Déjà dans cet ordre'); return; }
+  sorted.forEach((s,i)=>{ s.sortOrder=i+1; });
+  if(isList) listStocks=sorted; else stocks=sorted;
+  if(isList) renderList(); else render();
+  try{ await dbSaveOrder(sorted.map(s=>s.id)); toast('Ordre mis à jour'); }
+  catch(e){ toast('Erreur sauvegarde ordre : '+e.message,'err'); }
+}
 </script>
 </body>
 </html>
